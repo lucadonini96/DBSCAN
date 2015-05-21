@@ -5,245 +5,329 @@
 #include <boost/algorithm/minmax.hpp>
 #include <vector>
 #include <omp.h>
+#include <algorithm>
 
 #include "dbscan.h"
 
 namespace clustering
 {
-	DBSCAN::ClusterData DBSCAN::gen_cluster_data( size_t features_num, size_t elements_num )
-	{
-		DBSCAN::ClusterData cl_d( elements_num, features_num );
+void DBSCAN::centroids(const DBSCAN::ClusterData & C)
+{
+    //int n_clus=*std::max_element(m_labels.begin(),m_labels.end());
+    int n_clus=n_labels;
+    //std::cout << n_clus << std::endl;
+    DBSCAN::ClusterData ce(n_clus,C.size2());
+    std::vector<int> Lab_weighs (n_clus,0);
+    for(int i=0; i<ce.size1(); ++i)   ///azzera
+    {
+        for(int j=0; j<ce.size2(); ++j)
+            ce(i,j)=0;
+    }
+    for(int i=0; i<C.size1(); ++i)   ///for each element in the cluster
+    {
+        int lab=m_labels[i];
+        Lab_weighs[lab]++;
+        for(int j=0; j<C.size2(); ++j)
+            ce(lab,j)+=C(i,j);
+    }
+    for(int i=0; i<ce.size1(); ++i)   ///azzera
+    {
+        for(int j=0; j<ce.size2(); ++j)
+            ce(i,j)=ce(i,j)/float(Lab_weighs[i]);
+    }
+    //DBSCAN::lab_weighs=Lab_weighs;
+    Centroids CE= {ce,Lab_weighs};
+    centr=CE;
+    //return CE;
+}
 
-		for (size_t i = 0; i < elements_num; ++i)
-		{
-			for (size_t j = 0; j < features_num; ++j)	
-			{
-				cl_d(i, j) = (-1.0 + rand() * (2.0) / RAND_MAX);
-			}
-		}
+DBSCAN::Centroids DBSCAN::get_centroids()
+{
+    return centr;
+}
 
-		return cl_d;
-	}
+DBSCAN::ClusterData DBSCAN::gen_cluster_data( size_t features_num, size_t elements_num )
+{
+    DBSCAN::ClusterData cl_d( elements_num, features_num );
 
-	DBSCAN::FeaturesWeights DBSCAN::std_weights( size_t s )
-	{
-		// num cols
-		DBSCAN::FeaturesWeights ws( s );
+    for (size_t i = 0; i < elements_num; ++i)
+    {
+        for (size_t j = 0; j < features_num; ++j)
+        {
+            cl_d(i, j) = (-1.0 + rand() * (2.0) / RAND_MAX);
+        }
+    }
 
-		for (size_t i = 0; i < s; ++i)
-		{
-			ws(i) = 1.0;
-		}
+    return cl_d;
+}
 
-		return ws;
-	}
+DBSCAN::FeaturesWeights DBSCAN::std_weights( size_t s )
+{
+    // num cols
+    DBSCAN::FeaturesWeights ws( s );
 
-	DBSCAN::DBSCAN()
-	{
+    for (size_t i = 0; i < s; ++i)
+    {
+        ws(i) = 1.0;
+    }
 
-	}
+    return ws;
+}
 
-	void DBSCAN::init(double eps, size_t min_elems, int num_threads)
-	{
-		m_eps = eps;
-		m_min_elems = min_elems;
-		m_num_threads = num_threads;
-	}
+DBSCAN::DBSCAN()
+{
 
-	DBSCAN::DBSCAN(double eps, size_t min_elems, int num_threads)
-	: m_eps( eps )
-	, m_min_elems( min_elems )
-	, m_num_threads( num_threads )
-	, m_dmin(0.0)
-	, m_dmax(0.0)
-	{
-		reset();
-	}
+}
 
-	DBSCAN::~DBSCAN()
-	{
+void DBSCAN::init(double eps, size_t min_elems, int num_threads)
+{
+    m_eps = eps;
+    m_min_elems = min_elems;
+    m_num_threads = num_threads;
+}
 
-	}
+DBSCAN::DBSCAN(double eps, size_t min_elems, int num_threads)
+    : m_eps( eps )
+    , m_min_elems( min_elems )
+    , m_num_threads( num_threads )
+    , m_dmin(0.0)
+    , m_dmax(0.0)
+{
+    reset();
+}
 
-	void DBSCAN::reset()
-	{
-		m_labels.clear();
-	}
+DBSCAN::~DBSCAN()
+{
 
-	void DBSCAN::prepare_labels( size_t s )
-	{
-		m_labels.resize(s);
+}
 
-		for( auto & l : m_labels)
-		{
-			l = -1;
-		}
-	}
+void DBSCAN::reset()
+{
+    m_labels.clear();
+}
 
-	const DBSCAN::DistanceMatrix DBSCAN::calc_dist_matrix( const DBSCAN::ClusterData & C, const DBSCAN::FeaturesWeights & W )
-	{
-		DBSCAN::ClusterData cl_d = C;
+void DBSCAN::prepare_labels( size_t s )
+{
+    m_labels.resize(s);
 
-		omp_set_dynamic(0);     
-		omp_set_num_threads( m_num_threads );
-		#pragma omp parallel for
-		for (size_t i = 0; i < cl_d.size2(); ++i)
-		{
-			ublas::matrix_column<DBSCAN::ClusterData>col(cl_d, i);
+    for( auto & l : m_labels)
+    {
+        l = -1;
+    }
+}
 
-			const auto r = minmax_element( col.begin(), col.end() );
+const DBSCAN::DistanceMatrix DBSCAN::calc_dist_matrix( const DBSCAN::ClusterData & C, const DBSCAN::FeaturesWeights & W )
+{
+    DBSCAN::ClusterData cl_d = C;
 
-			double data_min = *r.first;
-			double data_range = *r.second - *r.first;
+    omp_set_dynamic(0);
+    omp_set_num_threads( m_num_threads );
+    #pragma omp parallel for
+    for (size_t i = 0; i < cl_d.size2(); ++i)
+    {
+        ublas::matrix_column<DBSCAN::ClusterData>col(cl_d, i);
 
-			if (data_range == 0.0) { data_range = 1.0; }
+        const auto r = minmax_element( col.begin(), col.end() );
 
-			const double scale = 1/data_range;
-			const double min = -1.0*data_min*scale;
+        double data_min = *r.first;
+        double data_range = *r.second - *r.first;
 
-			col *= scale;
-			col.plus_assign( ublas::scalar_vector< typename ublas::matrix_column<DBSCAN::ClusterData>::value_type >(col.size(), min) );
-		}
+        if (data_range == 0.0)
+        {
+            data_range = 1.0;
+        }
 
-		// rows x rows
-		DBSCAN::DistanceMatrix d_m( cl_d.size1(), cl_d.size1() );
-		ublas::vector<double> d_max( cl_d.size1() );
-		ublas::vector<double> d_min( cl_d.size1() );
+        const double scale = 1/data_range;
+        const double min = -1.0*data_min*scale;
 
-		omp_set_dynamic(0);     
-		omp_set_num_threads( m_num_threads );
-		#pragma omp parallel for
-		for (size_t i = 0; i < cl_d.size1(); ++i)
-		{
-			for (size_t j = i; j < cl_d.size1(); ++j)	
-			{
-				d_m(i, j) = 0.0;
+        col *= scale;
+        col.plus_assign( ublas::scalar_vector< typename ublas::matrix_column<DBSCAN::ClusterData>::value_type >(col.size(), min) );
+    }
 
-				if (i != j)
-				{
-					ublas::matrix_row<DBSCAN::ClusterData> U (cl_d, i);
-					ublas::matrix_row<DBSCAN::ClusterData> V (cl_d, j);
+    // rows x rows
+    DBSCAN::DistanceMatrix d_m( cl_d.size1(), cl_d.size1() );
+    ublas::vector<double> d_max( cl_d.size1() );
+    ublas::vector<double> d_min( cl_d.size1() );
 
-					int k = 0;
-					for (const auto e : ( U-V ) )
-					{
-						d_m(i, j) += fabs(e)*W[k++];
-					}
+    omp_set_dynamic(0);
+    omp_set_num_threads( m_num_threads );
+    #pragma omp parallel for
+    for (size_t i = 0; i < cl_d.size1(); ++i)
+    {
+        for (size_t j = i; j < cl_d.size1(); ++j)
+        {
+            d_m(i, j) = 0.0;
 
-					d_m(j, i) = d_m(i, j);
-				}
-			}
+            if (i != j)
+            {
+                ublas::matrix_row<DBSCAN::ClusterData> U (cl_d, i);
+                ublas::matrix_row<DBSCAN::ClusterData> V (cl_d, j);
 
-			const auto cur_row = ublas::matrix_row<DBSCAN::DistanceMatrix>(d_m, i);
-			const auto mm = minmax_element( cur_row.begin(), cur_row.end() );
+                int k = 0;
+                for (const auto e : ( U-V ) )
+                {
+                    d_m(i, j) += fabs(e)*W[k++];
+                }
 
-			d_max(i) = *mm.second;
-			d_min(i) = *mm.first;
-		}
+                d_m(j, i) = d_m(i, j);
+            }
+        }
 
-		m_dmin = *(min_element( d_min.begin(), d_min.end() ));
-		m_dmax = *(max_element( d_max.begin(), d_max.end() ));
+        const auto cur_row = ublas::matrix_row<DBSCAN::DistanceMatrix>(d_m, i);
+        const auto mm = minmax_element( cur_row.begin(), cur_row.end() );
 
-		m_eps = (m_dmax - m_dmin) * m_eps + m_dmin;
+        d_max(i) = *mm.second;
+        d_min(i) = *mm.first;
+    }
 
-		return d_m;
-	}
+    m_dmin = *(min_element( d_min.begin(), d_min.end() ));
+    m_dmax = *(max_element( d_max.begin(), d_max.end() ));
 
-	DBSCAN::Neighbors DBSCAN::find_neighbors(const DBSCAN::DistanceMatrix & D, uint32_t pid)
-	{
-		Neighbors ne;
+    m_eps = (m_dmax - m_dmin) * m_eps + m_dmin;
 
-		for (uint32_t j = 0; j < D.size1(); ++j)
-		{
-			if 	( D(pid, j) <= m_eps )
-			{
-				ne.push_back(j);
-			}
-		}
-		return ne;
-	}
+    return d_m;
+}
 
-	void DBSCAN::dbscan( const DBSCAN::DistanceMatrix & dm )
-	{
-		std::vector<uint8_t> visited( dm.size1() );
+DBSCAN::Neighbors DBSCAN::find_neighbors(const DBSCAN::DistanceMatrix & D, uint32_t pid)
+{
+    Neighbors ne;
 
-		uint32_t cluster_id = 0;
+    for (uint32_t j = 0; j < D.size1(); ++j)
+    {
+        if 	( D(pid, j) <= m_eps )
+        {
+            ne.push_back(j);
+        }
+    }
+    return ne;
+}
 
-		for (uint32_t pid = 0; pid < dm.size1(); ++pid)
-		{
-			if ( !visited[pid] )
-			{  
-				visited[pid] = 1;
+void DBSCAN::dbscan( const DBSCAN::DistanceMatrix & dm )
+{
+    std::vector<uint8_t> visited( dm.size1() );
 
-				Neighbors ne = find_neighbors(dm, pid );
+    uint32_t cluster_id = 0;
 
-				if (ne.size() >= m_min_elems)
-				{
-					m_labels[pid] = cluster_id;
+    for (uint32_t pid = 0; pid < dm.size1(); ++pid)
+    {
+        if ( !visited[pid] )
+        {
+            visited[pid] = 1;
 
-					for (uint32_t i = 0; i < ne.size(); ++i)
-					{
-						uint32_t nPid = ne[i];
+            Neighbors ne = find_neighbors(dm, pid );
 
-						if ( !visited[nPid] )
-						{
-							visited[nPid] = 1;
+            if (ne.size() >= m_min_elems)
+            {
+                m_labels[pid] = cluster_id;
 
-							Neighbors ne1 = find_neighbors(dm, nPid);
+                for (uint32_t i = 0; i < ne.size(); ++i)
+                {
+                    uint32_t nPid = ne[i];
 
-							if ( ne1.size() >= m_min_elems )
-							{
-								for (const auto & n1 : ne1)
-								{
-									ne.push_back(n1);
-								}
-							}
-						}
+                    if ( !visited[nPid] )
+                    {
+                        visited[nPid] = 1;
 
-						if ( m_labels[nPid] == -1 )
-						{
-							m_labels[nPid] = cluster_id;
-						}
-					}
+                        Neighbors ne1 = find_neighbors(dm, nPid);
 
-					++cluster_id;
-				}
-			}
-		}
-	}
+                        if ( ne1.size() >= m_min_elems )
+                        {
+                            for (const auto & n1 : ne1)
+                            {
+                                ne.push_back(n1);
+                            }
+                        }
+                    }
 
-	void DBSCAN::fit( const DBSCAN::ClusterData & C ) 
-	{
-		const DBSCAN::FeaturesWeights W = DBSCAN::std_weights( C.size2() );
-		wfit( C, W );
-	}
-	void DBSCAN::fit_precomputed( const DBSCAN::DistanceMatrix & D ) 
-	{
-		prepare_labels( D.size1() );
-		dbscan( D );
-	}
+                    if ( m_labels[nPid] == -1 )
+                    {
+                        m_labels[nPid] = cluster_id;
+                    }
+                }
 
-	void DBSCAN::wfit( const DBSCAN::ClusterData & C, const DBSCAN::FeaturesWeights & W )
-	{
-		prepare_labels( C.size1() );
-		const DBSCAN::DistanceMatrix D = calc_dist_matrix( C, W );
-		dbscan( D );
-	}
+                ++cluster_id;
+            }
+        }
+    }
+    n_labels=cluster_id;
+}
 
-	const DBSCAN::Labels & DBSCAN::get_labels() const
-	{
-		return m_labels;
-	}
+void DBSCAN::fit( const DBSCAN::ClusterData & C )
+{
+    const DBSCAN::FeaturesWeights W = DBSCAN::std_weights( C.size2() );
+    wfit( C, W );
+}
+void DBSCAN::fit_precomputed( const DBSCAN::DistanceMatrix & D )
+{
+    prepare_labels( D.size1() );
+    dbscan( D );
+}
 
-	std::ostream& operator<<(std::ostream& o, DBSCAN & d)
-	{
-		o << "[ ";
-		for ( const auto & l : d.get_labels() )
-		{
-			o << " " << l;
-		}
-		o << " ] " << std::endl;
+void DBSCAN::wfit( const DBSCAN::ClusterData & C, const DBSCAN::FeaturesWeights & W )
+{
+    prepare_labels( C.size1() );
+    const DBSCAN::DistanceMatrix D = calc_dist_matrix( C, W );
+    dbscan( D );
+}
 
-		return o;
-	}
+const DBSCAN::Labels & DBSCAN::get_labels() const
+{
+    return m_labels;
+}
+
+void DBSCAN::connectSides() //DBSCAN::Centroids & CE, DBSCAN::Labels & labels)
+{
+    Centroids & CE=centr;
+    float e_th=0.2;
+    float e_r=15;
+    for (size_t i = 0; i < CE.ce.size1(); ++i)
+    {
+        if(CE.ce(i,1)-M_PI>-e_th && CE.weighs[i]!=0)   ///se theta è vicino a pi greco
+        {
+            std::cout << "I " << i << std::endl;
+            for(size_t j = 0; j<CE.ce.size1(); ++j)
+                if(CE.ce(j,1)<e_th && CE.ce(i,0)+CE.ce(j,0)<e_r && CE.weighs[j]!=0)   ///se theta è vicino a 0
+                {
+                    std::cout << "J " << j << " " << M_PI << std::endl;
+                    ///media ponderata nuova
+                    CE.ce(j,1)=(CE.ce(j,1)*CE.weighs[j]+(CE.ce(i,1)-M_PI)*CE.weighs[i])/(CE.weighs[j]+CE.weighs[i]);
+                    CE.ce(j,0)=(CE.ce(j,0)*CE.weighs[j]-CE.ce(i,0)*CE.weighs[i])/(CE.weighs[j]+CE.weighs[i]);
+                    if(CE.ce(j,1)<0)
+                    {
+                        CE.ce(j,1)+=M_PI;
+                        CE.ce(j,0)=-CE.ce(j,0);
+                    }
+                    std::cout << CE.ce(j,1) << std::endl;
+                    std::cout << CE.ce(j,0) << std::endl;
+                    CE.weighs[j]=CE.weighs[j]+CE.weighs[i];
+                    ///elimina gruppo vecchio
+                    //CE.weighs.erase(CE.weighs.begin()+i);   ///elimina in posizione i
+                    //CE.ce.erase_element(i,0);
+                    //CE.ce.erase_element(i,1);
+                    CE.weighs[i]=0;
+                    CE.ce(i,0)=0;
+                    CE.ce(i,1)=0;
+                    ///sostituisci labels
+                    for(int k=0; k<m_labels.size(); ++k)
+                        if(m_labels[k]==i)
+                            m_labels[k]=j;
+                    break;
+                }
+            //break;
+        }
+    }
+    DBSCAN::centr=CE;
+}
+
+std::ostream& operator<<(std::ostream& o, DBSCAN & d)
+{
+    o << "[ ";
+    for ( const auto & l : d.get_labels() )
+    {
+        o << " " << l;
+    }
+    o << " ] " << std::endl;
+
+    return o;
+}
 }

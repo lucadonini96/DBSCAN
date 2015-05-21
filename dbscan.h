@@ -13,6 +13,11 @@ namespace clustering
 		typedef ublas::matrix<double> DistanceMatrix;
 		typedef std::vector<uint32_t> Neighbors;
 		typedef std::vector<int32_t> Labels;
+		struct Centroids
+		{
+            ClusterData ce;
+            std::vector<int> weighs;
+		};
 
 		static ClusterData gen_cluster_data( size_t features_num, size_t elements_num );
 		static FeaturesWeights std_weights( size_t s );
@@ -27,8 +32,13 @@ namespace clustering
 		void wfit( const ClusterData & C, const FeaturesWeights & W );
 		void reset();
 
+        void connectSides();
 		const Labels & get_labels() const;
-	
+		void centroids(const ClusterData & C);
+		Centroids get_centroids();
+		int n_labels;
+		//std::vector <int> lab_weighs;
+
 	private:
 
 		void prepare_labels( size_t s );
@@ -43,6 +53,7 @@ namespace clustering
 		double m_dmax;
 
 		Labels m_labels;
+		Centroids centr;
 	};
 
 	std::ostream& operator<<(std::ostream& o, DBSCAN & d);
